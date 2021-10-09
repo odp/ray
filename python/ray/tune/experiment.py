@@ -6,6 +6,7 @@ import os
 
 from pickle import PicklingError
 
+from ray.tune.durable_trainable import DurableTrainable
 from ray.tune.error import TuneError
 from ray.tune.registry import register_trainable, get_trainable_cls
 from ray.tune.result import DEFAULT_RESULTS_DIR
@@ -19,27 +20,8 @@ from ray.util.annotations import DeveloperAPI
 logger = logging.getLogger(__name__)
 
 
-def _raise_deprecation_note(deprecated, replacement, soft=False):
-    """User notification for deprecated parameter.
-
-    Arguments:
-        deprecated (str): Deprecated parameter.
-        replacement (str): Replacement parameter to use instead.
-        soft (bool): Fatal if True.
-    """
-    error_msg = ("`{deprecated}` is deprecated. Please use `{replacement}`. "
-                 "`{deprecated}` will be removed in future versions of "
-                 "Ray.".format(deprecated=deprecated, replacement=replacement))
-    if soft:
-        logger.warning(error_msg)
-    else:
-        raise DeprecationWarning(error_msg)
-
-
-def _raise_on_durable(trainable_name, sync_to_driver, upload_dir):
-    trainable_cls = get_trainable_cls(trainable_name)
-    from ray.tune.durable_trainable import DurableTrainable
-    if issubclass(trainable_cls, DurableTrainable):
+def _raise_on_durable(is_durable_trainable, sync_to_driver, upload_dir):
+    if is_durable_trainable:
         if sync_to_driver is not False:
             raise ValueError(
                 "EXPERIMENTAL: DurableTrainable will automatically sync "
@@ -119,7 +101,6 @@ class Experiment:
                  upload_dir=None,
                  trial_name_creator=None,
                  trial_dirname_creator=None,
-                 loggers=None,
                  log_to_file=False,
                  sync_to_driver=None,
                  sync_to_cloud=None,
@@ -131,17 +112,6 @@ class Experiment:
                  export_formats=None,
                  max_failures=0,
                  restore=None):
-
-        if loggers is not None:
-            # Most users won't run into this as `tune.run()` does not pass
-            # the argument anymore. However, we will want to inform users
-            # if they instantiate their `Experiment` objects themselves.
-            raise ValueError(
-                "Passing `loggers` to an `Experiment` is deprecated. Use "
-                "an `LoggerCallback` callback instead, e.g. by passing the "
-                "`Logger` classes to `tune.logger.LegacyLoggerCallback` and "
-                "passing this as part of the `callback` parameter to "
-                "`tune.run()`.")
 
         config = config or {}
         if callable(run) and not inspect.isclass(run) and \
@@ -206,7 +176,8 @@ class Experiment:
             else:
                 self._stopper = TimeoutStopper(time_budget_s)
 
-        _raise_on_durable(self._run_identifier, sync_to_driver, upload_dir)
+        _raise_on_durable(self.is_durable_trainable, sync_to_driver,
+                          upload_dir)
 
         stdout_file, stderr_file = _validate_log_to_file(log_to_file)
 
@@ -222,7 +193,6 @@ class Experiment:
             "remote_checkpoint_dir": self.remote_checkpoint_dir,
             "trial_name_creator": trial_name_creator,
             "trial_dirname_creator": trial_dirname_creator,
-            "loggers": loggers,
             "log_to_file": (stdout_file, stderr_file),
             "sync_to_driver": sync_to_driver,
             "sync_to_cloud": sync_to_cloud,
@@ -331,6 +301,11 @@ class Experiment:
     def run_identifier(self):
         """Returns a string representing the trainable identifier."""
         return self._run_identifier
+
+    @property
+    def is_durable_trainable(self):
+        trainable_cls = get_trainable_cls(self._run_identifier)
+        return issubclass(trainable_cls, DurableTrainable)
 
     @property
     def public_spec(self) -> Dict[str, Any]:

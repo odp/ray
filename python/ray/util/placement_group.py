@@ -1,4 +1,3 @@
-import time
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -26,7 +25,7 @@ def _export_bundle_reservation_check_method_if_needed():
     if bundle_reservation_check:
         return
 
-    @ray.remote(num_cpus=0, max_calls=0)
+    @ray.remote(num_cpus=0)
     def bundle_reservation_check_func(placement_group):
         return placement_group
 
@@ -154,26 +153,11 @@ def _call_placement_group_ready(pg_id: PlacementGroupID,
 
 @client_mode_wrap
 def _get_bundle_cache(pg_id: PlacementGroupID) -> List[Dict]:
-    # Since creating placement group is async, it is
-    # possible table is not ready yet. To avoid the
-    # problem, we should keep trying with timeout.
-    TIMEOUT_SECOND = 30
-    WAIT_INTERVAL = 0.05
-    timeout_cnt = 0
     worker = ray.worker.global_worker
     worker.check_connected()
 
-    while timeout_cnt < int(TIMEOUT_SECOND / WAIT_INTERVAL):
-        pg_info = ray.state.state.placement_group_table(pg_id)
-        if pg_info:
-            return list(pg_info["bundles"].values())
-        time.sleep(WAIT_INTERVAL)
-        timeout_cnt += 1
-
-    raise RuntimeError(
-        "Couldn't get the bundle information of placement group id "
-        f"{id} in {TIMEOUT_SECOND} seconds. It is likely "
-        "because GCS server is too busy.")
+    return list(
+        ray.state.state.placement_group_table(pg_id)["bundles"].values())
 
 
 @PublicAPI
@@ -323,7 +307,7 @@ def get_current_placement_group() -> Optional[PlacementGroup]:
             None if the current task or actor wasn't
             created with any placement group.
     """
-    if client_mode_should_convert():
+    if client_mode_should_convert(auto_init=True):
         # Client mode is only a driver.
         return None
     worker = ray.worker.global_worker

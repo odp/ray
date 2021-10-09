@@ -456,8 +456,7 @@ void ClusterResourceScheduler::AddLocalResourceInstances(
 
   for (size_t i = 0; i < instances.size(); i++) {
     node_instances->available[i] += instances[i];
-    node_instances->total[i] =
-        std::max(node_instances->total[i], node_instances->available[i]);
+    node_instances->total[i] += instances[i];
   }
   UpdateLocalAvailableResourcesFromResourceInstances();
 }
@@ -582,8 +581,12 @@ void ClusterResourceScheduler::DeleteResource(const std::string &node_id_string,
     local_view->predefined_resources[idx].total = 0;
 
     if (node_id == local_node_id_) {
-      local_resources_.predefined_resources[idx].total.clear();
-      local_resources_.predefined_resources[idx].available.clear();
+      for (auto &total : local_resources_.predefined_resources[idx].total) {
+        total = 0;
+      }
+      for (auto &available : local_resources_.predefined_resources[idx].available) {
+        available = 0;
+      }
     }
   } else {
     int64_t resource_id = string_to_int_map_.Get(resource_name);
